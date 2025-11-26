@@ -9,12 +9,14 @@ import { GeolocationPrompt } from "@/components/geolocation-prompt"
 import { EnhancedChatPanel } from "@/components/enhanced-chat-panel"
 import { GoogleMapsEmbed } from "@/components/google-maps-embed"
 import { SettingsPage } from "@/components/settings-page"
+import { TopToast } from "./Top-toast"
 
 export function EmergencyApp() {
   const [chatOpen, setChatOpen] = useState(false)
   const [reportModalOpen, setReportModalOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [selectedResource, setSelectedResource] = useState<any>(null)
+  const [toast, setToast] = useState({ show: false, message: "" })
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null)
   const [resources, setResources] = useState<any[]>([
     {
@@ -100,6 +102,15 @@ export function EmergencyApp() {
     )
   }
 
+  
+const showToast = (m: string) => {
+  setToast({ show: true, message: m })
+
+  setTimeout(() => {
+    setToast({ show: false, message: "" })
+  }, 2500)
+}
+
   const handleManualLocation = (city: string) => {
     const locations: Record<string, { lat: number; lng: number }> = {
       "new york": { lat: 40.7128, lng: -74.006 },
@@ -120,6 +131,7 @@ export function EmergencyApp() {
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-background">
+      <TopToast show={toast.show} message={toast.message} />
       {!isOnline && <OfflineBanner />}
 
       <Header onSettingsClick={() => setSettingsOpen(true)} />
@@ -167,6 +179,7 @@ export function EmergencyApp() {
           setSelectedResource(null)
         }}
         onSubmit={(status) => {
+          showToast("Report submitted successfully!")
           console.log("Report submitted:", status)
           setReportModalOpen(false)
         }}

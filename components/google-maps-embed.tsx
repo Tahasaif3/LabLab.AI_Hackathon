@@ -1,8 +1,6 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import maplibregl from "maplibre-gl"
-import "maplibre-gl/dist/maplibre-gl.css"
 
 interface GoogleMapsEmbedProps {
   lat?: number
@@ -17,51 +15,59 @@ export function GoogleMapsEmbed({
   zoom = 14,
   height = "100%",
 }: GoogleMapsEmbedProps) {
-  const mapContainer = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<HTMLDivElement | null>(null)
+  const mapInstance = useRef<google.maps.Map | null>(null)
+  const markerInstance = useRef<google.maps.Marker | null>(null)
 
+  // Load Google Maps Script (once)
   useEffect(() => {
-    if (!mapContainer.current) return
+    if (typeof window === "undefined") return
 
-const map = new maplibregl.Map({
-  container: mapContainer.current,
-  style: "https://tiles.stadiamaps.com/styles/osm_bright.json", // REAL MAP
-  center: [lng, lat],
-  zoom,
-})
-
-
-    // Add controls
-    map.addControl(new maplibregl.NavigationControl(), "top-right")
-
-    // Try to get user location
-    if ("geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition((pos) => {
-        const userLat = pos.coords.latitude
-        const userLng = pos.coords.longitude
-
-        // Center map on user
-        map.flyTo({ center: [userLng, userLat], zoom: 15 })
-
-        // Add blue dot marker
-        const el = document.createElement("div")
-        el.style.width = "18px"
-        el.style.height = "18px"
-        el.style.background = "#3b82f6"
-        el.style.border = "3px solid white"
-        el.style.borderRadius = "50%"
-        el.style.boxShadow = "0 0 10px #3b82f6"
-
-        new maplibregl.Marker(el).setLngLat([userLng, userLat]).addTo(map)
-      })
+    if ((window as any).google) {
+      initMap()
+      return
     }
 
-    return () => map.remove()
-  }, [lat, lng, zoom])
+    const script = document.createElement("script")
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`
+    script.async = true
+    script.onload = initMap
+    document.body.appendChild(script)
+  }, [])
+
+  // Initialize map once
+  const initMap = () => {
+    if (!mapRef.current || !(window as any).google) return
+
+    mapInstance.current = new google.maps.Map(mapRef.current, {
+      center: { lat, lng },
+      zoom,
+      disableDefaultUI: true,
+      zoomControl: true,
+      gestureHandling: "greedy",
+      mapId: "DEMO_MAP",
+    })
+
+    markerInstance.current = new google.maps.Marker({
+      position: { lat, lng },
+      map: mapInstance.current,
+    })
+  }
+
+  // Update map center & marker when lat/lng change
+  useEffect(() => {
+    if (!mapInstance.current || !markerInstance.current) return
+
+    const newPos = { lat, lng }
+
+    mapInstance.current.panTo(newPos)
+    markerInstance.current.setPosition(newPos)
+  }, [lat, lng])
 
   return (
     <div
-      ref={mapContainer}
-      className="rounded-2xl overflow-hidden"
+      ref={mapRef}
+      className="rounded-2xl"
       style={{ width: "100%", height }}
     />
   )

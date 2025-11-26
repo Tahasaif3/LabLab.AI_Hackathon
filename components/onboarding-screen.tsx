@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { ChevronRight, AlertTriangle, MapPin, Shield, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -13,11 +13,30 @@ interface OnboardingScreenProps {
 export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
   const [currentStep, setCurrentStep] = useState(0)
 
+  // 🔥 REAL USER LOCATION STATE
+  const [userLat, setUserLat] = useState<number | null>(null)
+  const [userLng, setUserLng] = useState<number | null>(null)
+
+  // 🔥 GET USER LOCATION ONCE
+  useEffect(() => {
+    if (!navigator.geolocation) return
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setUserLat(pos.coords.latitude)
+        setUserLng(pos.coords.longitude)
+      },
+      () => console.warn("User denied location permission")
+    )
+  }, [])
+
+  // Your onboarding steps
   const steps = [
     {
       icon: AlertTriangle,
       title: "Crisis Resource Locator",
-      description: "Get emergency help instantly. Find shelters, resources, and support in your area in seconds.",
+      description:
+        "Get emergency help instantly. Find shelters, resources, and support in your area in seconds.",
       color: "text-primary",
       bgGradient: "from-primary/15 to-primary/5",
       mapLat: 40.7128,
@@ -68,7 +87,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-card flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated background elements */}
+      {/* Blurred animated background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 right-10 w-80 h-80 bg-primary/6 rounded-full blur-3xl animate-pulse"></div>
         <div
@@ -86,18 +105,26 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
         <ThemeToggle />
       </div>
 
-      {/* Main content */}
+      {/* Main container */}
       <div className="relative z-10 w-full max-w-5xl mx-auto flex flex-col lg:flex-row items-center gap-8">
-        {/* Left: Google Maps Embed */}
+        
+        {/* LEFT SIDE — MAP */}
         <div className="hidden lg:flex flex-1 animate-float">
           <div className="w-full h-96 rounded-2xl overflow-hidden shadow-2xl border-2 border-primary/20">
-            <GoogleMapsEmbed lat={step.mapLat} lng={step.mapLng} zoom={18} />
+
+            {/* 🔥 USE REAL USER LOCATION IF AVAILABLE */}
+            <GoogleMapsEmbed
+              lat={userLat ?? step.mapLat}
+              lng={userLng ?? step.mapLng}
+              zoom={18}
+            />
           </div>
         </div>
 
-        {/* Right: Onboarding Content */}
+        {/* RIGHT SIDE — TEXT CONTENT */}
         <div className="w-full lg:max-w-md flex flex-col items-center lg:items-start text-center lg:text-left animate-fade-in">
-          {/* Icon with glow */}
+          
+          {/* ICON */}
           <div className="mb-10 relative">
             <div className="absolute inset-0 bg-gradient-to-br from-primary/30 to-secondary/30 rounded-3xl blur-2xl opacity-40"></div>
             <div
@@ -107,11 +134,15 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             </div>
           </div>
 
-          {/* Content */}
-          <h2 className="text-4xl md:text-5xl font-bold mb-6 text-foreground">{step.title}</h2>
-          <p className="text-lg text-muted-foreground mb-10 leading-relaxed">{step.description}</p>
+          {/* TITLE + DESCRIPTION */}
+          <h2 className="text-4xl md:text-5xl font-bold mb-6 text-foreground">
+            {step.title}
+          </h2>
+          <p className="text-lg text-muted-foreground mb-10 leading-relaxed">
+            {step.description}
+          </p>
 
-          {/* Progress indicators */}
+          {/* PROGRESS DOTS */}
           <div className="flex gap-2 mb-12">
             {steps.map((_, index) => (
               <div
@@ -125,7 +156,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             ))}
           </div>
 
-          {/* CTA Buttons */}
+          {/* BUTTONS */}
           <div className="w-full space-y-4">
             <Button
               onClick={handleNext}
@@ -153,7 +184,7 @@ export function OnboardingScreen({ onComplete }: OnboardingScreenProps) {
             )}
           </div>
 
-          {/* Step indicator */}
+          {/* STEP COUNTER */}
           <p className="mt-8 text-sm text-muted-foreground font-medium">
             Step {currentStep + 1} of {steps.length}
           </p>

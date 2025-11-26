@@ -1,9 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { X, Send, Loader2, Zap, Share2, Copy } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { useState, useEffect } from "react"
+import { X, Send, Loader2, Zap, Share2, Copy, MapPin, AlertCircle } from "lucide-react"
 
 interface EnhancedChatPanelProps {
   isOpen: boolean
@@ -17,62 +15,195 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
   >([
     {
       type: "system",
-      text: "Welcome to Crisis Support! I'm analyzing resources near you...",
+      text: "Welcome to Crisis Support! Detecting your location...",
       actions: ["Get Help", "Report Issue"],
     },
   ])
   const [input, setInput] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [userLocation, setUserLocation] = useState<string | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  const [isDetectingLocation, setIsDetectingLocation] = useState(true)
 
-  const handleSendMessage = async () => {
-    if (!input.trim()) return
+  // Get user's location on mount
+  useEffect(() => {
+    if (!isOpen) return
 
-    const userMessage = input
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const { latitude, longitude } = position.coords
+          try {
+            // Use your backend's reverse geocode endpoint
+            const response = await fetch("https://tahasaif3-crisisagent.hf.space/reverse-geocode", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ lat: latitude, lon: longitude }),
+            })
+            
+            if (response.ok) {
+              const data = await response.json()
+              const locationString = [data.city, data.state, data.country]
+                .filter(Boolean)
+                .join(", ")
+              
+              setUserLocation(locationString || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+              setIsDetectingLocation(false)
+              
+              // Update welcome message with location
+              setMessages([
+                {
+                  type: "system",
+                  text: `✅ Location detected: ${locationString || 'Coordinates captured'}. I'm ready to help you find resources nearby.`,
+                  actions: ["Find Shelter", "Find Food", "Medical Help"],
+                },
+              ])
+            } else {
+              throw new Error("Reverse geocoding failed")
+            }
+          } catch (error) {
+            console.error("Reverse geocode error:", error)
+            setUserLocation(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`)
+            setIsDetectingLocation(false)
+            
+            setMessages([
+              {
+                type: "system",
+                text: `📍 Location detected (coordinates). I'm ready to help you find resources nearby.`,
+                actions: ["Find Shelter", "Find Food", "Medical Help"],
+              },
+            ])
+          }
+        },
+        (error) => {
+          console.error("Location error:", error)
+          setLocationError(
+            error.code === 1 
+              ? "Location access denied. Please enter your location manually." 
+              : "Unable to detect location. Please enter your location manually."
+          )
+          setIsDetectingLocation(false)
+          
+          setMessages([
+            {
+              type: "system",
+              text: "⚠️ I couldn't detect your location. Please share your location (e.g., 'I'm in New York' or 'I need help in Los Angeles') so I can find resources near you.",
+            },
+          ])
+        }
+      )
+    } else {
+      setLocationError("Geolocation not supported by your browser")
+      setIsDetectingLocation(false)
+      
+      setMessages([
+        {
+          type: "system",
+          text: "⚠️ Your browser doesn't support location detection. Please share your location (e.g., 'I'm in Chicago' or 'I need help in Boston') so I can find resources near you.",
+        },
+      ])
+    }
+  }, [isOpen])
+
+  const handleQuickAction = (action: string) => {
+    const actionMessages: Record<string, string> = {
+      "Get Help": "I need help",
+      "Report Issue": "I want to report an issue",
+      "Find Shelter": "I need shelter",
+      "Find Food": "I need food",
+      "Medical Help": "I need medical help",
+    }
+    
+    const message = actionMessages[action] || action
+    setInput(message)
+    handleSendMessage(message)
+  }
+
+  const handleSendMessage = async (messageOverride?: string) => {
+    const userMessage = messageOverride || input.trim()
+    if (!userMessage) return
+
     setInput("")
     setMessages((prev) => [...prev, { type: "user", text: userMessage }])
     setIsLoading(true)
 
-    setTimeout(() => {
-      const resources = [
-        {
-          id: 1,
-          name: "Downtown Shelter",
-          distance: "0.5 km",
-          status: "OPEN",
-          lastUpdated: "2 min ago",
-          capacity: "45/100",
-          amenities: ["Food", "Water", "Beds"],
+    try {
+      const response = await fetch("https://tahasaif3-crisisagent.hf.space/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-        {
-          id: 2,
-          name: "Community Center",
-          distance: "1.2 km",
-          status: "FULL",
-          lastUpdated: "5 min ago",
-          capacity: "100/100",
-          amenities: ["Medical", "Water"],
-        },
-        {
-          id: 3,
-          name: "Central Hospital",
-          distance: "2.1 km",
-          status: "OPEN",
-          lastUpdated: "1 min ago",
-          capacity: "80/150",
-          amenities: ["Medical", "Emergency", "Food"],
-        },
-      ]
+        body: JSON.stringify({
+          user_message: userMessage,
+          location: userLocation || "Please provide your location",
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+
+      // SYSTEM RESPONSE TEXT
+      if (data.response_text) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "system",
+            text: data.response_text,
+          },
+        ])
+      }
+
+      // RESOURCE CARDS
+      if (data.resources && Array.isArray(data.resources) && data.resources.length > 0) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "action",
+            text: `Found ${data.resources.length} resource${data.resources.length > 1 ? 's' : ''} near you:`,
+            resource: data.resources,
+          },
+        ])
+      }
+    } catch (error) {
+      console.error("API Error:", error)
 
       setMessages((prev) => [
         ...prev,
         {
-          type: "action",
-          text: "Found 3 resources matching your criteria:",
-          resource: resources,
+          type: "system",
+          text: "⚠️ Unable to reach the Crisis Support server. Please try again or call emergency services if urgent.",
         },
       ])
-      setIsLoading(false)
-    }, 1200)
+    }
+
+    setIsLoading(false)
+  }
+
+  const copyResourceDetails = (resource: any) => {
+    const details = `
+${resource.name}
+Distance: ${resource.distance}
+Status: ${resource.status}
+${resource.address ? `Address: ${resource.address}` : ''}
+${resource.phone ? `Phone: ${resource.phone}` : ''}
+Amenities: ${resource.amenities?.join(', ') || 'N/A'}
+    `.trim()
+    
+    navigator.clipboard.writeText(details)
+  }
+
+  const shareResource = (resource: any) => {
+    if (navigator.share) {
+      navigator.share({
+        title: resource.name,
+        text: `${resource.name} - ${resource.distance} away. ${resource.address || ''}`,
+      })
+    } else {
+      copyResourceDetails(resource)
+    }
   }
 
   if (!isOpen) return null
@@ -83,17 +214,36 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
       <div className="absolute inset-0 bg-black/40 backdrop-blur-md pointer-events-auto" onClick={onClose} />
 
       {/* Enhanced Panel */}
-      <div className="relative pointer-events-auto w-full md:w-3/4 md:max-w-3xl md:rounded-2xl bg-gradient-to-b from-card to-card/80 border border-border/50 rounded-t-3xl md:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col backdrop-blur-sm animate-slide-up overflow-hidden">
+      <div className="relative pointer-events-auto w-full md:w-3/4 md:max-w-3xl md:rounded-2xl bg-gradient-to-b from-card to-card/80 border border-border/50 rounded-t-3xl md:rounded-2xl shadow-2xl max-h-[85vh] flex flex-col backdrop-blur-sm overflow-hidden">
         {/* Header with Gradient */}
         <div className="flex items-center justify-between p-4 border-b border-border/50 bg-gradient-to-r from-primary/10 to-accent/10">
           <div className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-primary" />
             <h2 className="font-bold text-lg text-foreground">Crisis Support Assistant</h2>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="rounded-full hover:bg-muted">
+          <button onClick={onClose} className="rounded-full hover:bg-muted p-2 transition-colors">
             <X className="h-5 w-5" />
-          </Button>
+          </button>
         </div>
+
+        {/* Location Status Bar */}
+        {(userLocation || locationError) && (
+          <div className={`px-4 py-2 text-xs flex items-center gap-2 ${
+            locationError ? 'bg-amber-500/10 text-amber-600' : 'bg-green-500/10 text-green-600'
+          }`}>
+            {locationError ? (
+              <>
+                <AlertCircle className="h-3 w-3" />
+                <span>{locationError}</span>
+              </>
+            ) : (
+              <>
+                <MapPin className="h-3 w-3" />
+                <span>Location: {userLocation}</span>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -107,22 +257,21 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
                       : "bg-muted text-foreground rounded-bl-none"
                   }`}
                 >
-                  <p className="text-sm font-medium">{message.text}</p>
+                  <p className="text-sm font-medium whitespace-pre-line">{message.text}</p>
                 </div>
               </div>
 
               {/* Quick Action Buttons */}
               {message.actions && (
-                <div className="flex gap-2 justify-start ml-2">
+                <div className="flex gap-2 justify-start ml-2 flex-wrap">
                   {message.actions.map((action) => (
-                    <Button
+                    <button
                       key={action}
-                      size="sm"
-                      variant="outline"
-                      className="text-xs h-8 rounded-full border-primary/30 hover:bg-primary/10 bg-transparent"
+                      onClick={() => handleQuickAction(action)}
+                      className="text-xs h-8 px-3 rounded-full border border-primary/30 hover:bg-primary/10 bg-transparent transition-colors"
                     >
                       {action}
-                    </Button>
+                    </button>
                   ))}
                 </div>
               )}
@@ -147,7 +296,9 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
                           className={`px-2 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
                             resource.status === "OPEN"
                               ? "bg-green-500/20 text-green-600 dark:text-green-400"
-                              : "bg-red-500/20 text-red-600 dark:text-red-400"
+                              : resource.status === "CLOSED"
+                              ? "bg-red-500/20 text-red-600 dark:text-red-400"
+                              : "bg-yellow-500/20 text-yellow-600 dark:text-yellow-400"
                           }`}
                         >
                           {resource.status}
@@ -155,24 +306,28 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
                       </div>
 
                       <div className="space-y-2">
+                        {/* Address */}
+                        {resource.address && (
+                          <p className="text-xs text-muted-foreground">{resource.address}</p>
+                        )}
+
+                        {/* Phone */}
+                        {resource.phone && (
+                          <a href={`tel:${resource.phone}`} className="text-xs text-primary hover:underline block">
+                            📞 {resource.phone}
+                          </a>
+                        )}
+
+                        {/* Capacity */}
                         <div className="flex items-center justify-between text-xs">
                           <span className="text-muted-foreground">Capacity</span>
                           <span className="font-semibold text-foreground">{resource.capacity}</span>
                         </div>
 
-                        {/* Capacity Bar */}
-                        <div className="w-full bg-muted rounded-full h-1.5">
-                          <div
-                            className={`h-1.5 rounded-full ${
-                              resource.status === "OPEN" ? "bg-green-500" : "bg-red-500"
-                            }`}
-                            style={{ width: resource.capacity.split("/")[0].trim() + "%" }}
-                          ></div>
-                        </div>
-
                         {/* Amenities */}
-                        {resource.amenities && (
+                        {resource.amenities && resource.amenities.length > 0 && (
                           <div className="flex flex-wrap gap-1">
+
                             {resource.amenities.map((amenity) => (
                               <span
                                 key={amenity}
@@ -186,28 +341,35 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
 
                         {/* Action Buttons */}
                         <div className="flex gap-2 mt-2">
-                          <Button
-                            size="sm"
-                            variant="default"
-                            className="text-xs h-7 flex-1"
+                          <button
+                            className="text-xs h-7 flex-1 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
                             onClick={(e) => {
                               e.stopPropagation()
                               onReportClick?.(resource)
                             }}
                           >
-                            Report
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-xs h-7 px-2 bg-transparent"
+                            View Details
+                          </button>
+                          <button
+                            className="text-xs h-7 px-2 border border-border rounded-md hover:bg-muted transition-colors"
                             title="Copy details"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              copyResourceDetails(resource)
+                            }}
                           >
                             <Copy className="h-3 w-3" />
-                          </Button>
-                          <Button size="sm" variant="outline" className="text-xs h-7 px-2 bg-transparent" title="Share">
+                          </button>
+                          <button
+                            className="text-xs h-7 px-2 border border-border rounded-md hover:bg-muted transition-colors"
+                            title="Share"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              shareResource(resource)
+                            }}
+                          >
                             <Share2 className="h-3 w-3" />
-                          </Button>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -221,7 +383,16 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
             <div className="flex justify-start">
               <div className="bg-muted text-foreground px-4 py-3 rounded-xl rounded-bl-none flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm font-medium">Analyzing resources...</span>
+                <span className="text-sm font-medium">Searching for resources...</span>
+              </div>
+            </div>
+          )}
+
+          {isDetectingLocation && (
+            <div className="flex justify-start">
+              <div className="bg-muted text-foreground px-4 py-3 rounded-xl rounded-bl-none flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm font-medium">Detecting your location...</span>
               </div>
             </div>
           )}
@@ -230,24 +401,25 @@ export function EnhancedChatPanel({ isOpen, onClose, onReportClick }: EnhancedCh
         {/* Enhanced Input */}
         <div className="border-t border-border/50 p-4 space-y-2 bg-gradient-to-t from-card/50 to-transparent">
           <div className="flex gap-2">
-            <Input
+            <input
+              type="text"
               placeholder="Describe your situation or ask for specific resources..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
               disabled={isLoading}
-              className="rounded-xl bg-muted/50 border-border/30 focus:border-primary"
+              className="flex-1 rounded-xl bg-muted/50 border border-border/30 focus:border-primary px-4 py-2 text-sm outline-none"
             />
-            <Button
-              onClick={handleSendMessage}
+            <button
+              onClick={() => handleSendMessage()}
               disabled={isLoading || !input.trim()}
-              className="px-4 rounded-xl bg-primary hover:bg-primary/90 transition-colors"
+              className="px-4 rounded-xl bg-primary hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Send className="h-4 w-4" />
-            </Button>
+              <Send className="h-4 w-4 text-primary-foreground" />
+            </button>
           </div>
           <p className="text-xs text-muted-foreground text-center">
-            Your location and data are not stored after this session.
+            🔒 Your location and data are not stored after this session. For emergencies, call 911.
           </p>
         </div>
       </div>
