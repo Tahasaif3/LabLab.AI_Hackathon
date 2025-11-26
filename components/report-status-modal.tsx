@@ -10,6 +10,7 @@ interface ReportStatusModalProps {
   resource: any
   onClose: () => void
   onSubmit: (status: string) => void
+  userLocation?: string  // Add user location
 }
 
 export function ReportStatusModal({
@@ -17,10 +18,12 @@ export function ReportStatusModal({
   resource,
   onClose,
   onSubmit,
+  userLocation = ""
 }: ReportStatusModalProps) {
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   if (!isOpen || !resource) return null
 
@@ -58,17 +61,46 @@ export function ReportStatusModal({
     if (!selectedStatus) return
 
     setIsSubmitting(true)
-    setTimeout(() => {
+    setError(null)
+
+    try {
+      // Send report to backend
+      const response = await fetch('https://tahasaif3-crisisagent.hf.space/report-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          resource_id: resource.id,
+          resource_name: resource.name,
+          status: selectedStatus,
+          user_location: userLocation
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to submit report')
+      }
+
+      const result = await response.json()
+      
+      // Call the parent onSubmit callback
       onSubmit(selectedStatus)
       setSubmitted(true)
-      setIsSubmitting(false)
 
+      // Close modal after success
       setTimeout(() => {
         setSubmitted(false)
         setSelectedStatus(null)
         onClose()
-      }, 1600)
-    }, 1000)
+      }, 2000)
+
+    } catch (err) {
+      console.error('Error submitting status report:', err)
+      setError('Failed to submit report. Please try again.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
@@ -125,6 +157,19 @@ export function ReportStatusModal({
 
             {/* CONTENT */}
             <div className="p-6">
+              {error && (
+                <motion.div 
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl"
+                >
+                  <p className="text-sm text-red-500 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    {error}
+                  </p>
+                </motion.div>
+              )}
+
               {submitted ? (
                 <motion.div
                   className="text-center py-10 space-y-4"
@@ -157,9 +202,10 @@ export function ReportStatusModal({
                           key={option.id}
                           whileTap={{ scale: 0.97 }}
                           onClick={() => setSelectedStatus(option.id)}
+                          disabled={isSubmitting}
                           className={`
                             w-full p-4 rounded-2xl border flex items-start gap-3 transition-all
-                            backdrop-blur-sm
+                            backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed
                             ${
                               isSelected
                                 ? `${option.bg} ${option.glow} border-transparent`
@@ -168,7 +214,7 @@ export function ReportStatusModal({
                           `}
                         >
                           <Icon className={`h-5 w-5 mt-0.5 ${option.color}`} />
-                          <div>
+                          <div className="text-left">
                             <p className="font-medium text-foreground">{option.label}</p>
                             <p className="text-xs text-muted-foreground mt-1">{option.description}</p>
                           </div>
@@ -181,6 +227,7 @@ export function ReportStatusModal({
                   <div className="mt-6 bg-muted/40 border border-border/30 rounded-xl p-4">
                     <p className="text-xs text-muted-foreground leading-relaxed">
                       Your report is anonymous and helps the community stay informed.
+                      {userLocation && ` Reporting from: ${userLocation}`}
                     </p>
                   </div>
                 </>
